@@ -205,3 +205,22 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# all markdown files except readme
+*.md
+!README.md
+
+# AWS credentials - never commit these
+.aws-access-key.txt
+aws-access-key.txt
+arnav-jain-v2_accessKeys.csv
+
+# Lambda layer installed packages (rebuild with pip install -r requirements.txt)
+backend/lambda_layer/
+
+# Frontend dependencies
+frontend/node_modules/
+
+# CDK synthesis output
+infra/cdk.out/
+infra/deploy.log
