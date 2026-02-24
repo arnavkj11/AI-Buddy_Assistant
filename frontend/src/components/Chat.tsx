@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchAuthSession, signOut } from 'aws-amplify/auth';
-import { MessageSquare, Plus, LogOut, Send, Book, FileText } from 'lucide-react';
+import { MessageSquare, Plus, LogOut, Send, Book, FileText, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { awsConfig } from '../aws-config.ts';
 
@@ -88,7 +88,7 @@ export default function Chat() {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputStr.trim() || !activeSession || loading) return;
+    if (!inputStr.trim() || loading) return;
     const currentInput = inputStr;
     setInputStr('');
     setMessages(prev => [...prev, { role: 'user', content: currentInput }]);
@@ -96,7 +96,18 @@ export default function Chat() {
 
     try {
       const headers = await getHeaders();
-      const res = await fetch(`${API_ENPOINT}/v1/chats/${activeSession}/messages`, {
+
+      let sessionId = activeSession;
+      if (!sessionId) {
+        const newSession = await fetch(`${API_ENPOINT}/v1/chats`, { method: 'POST', headers });
+        if (!newSession.ok) throw new Error('Failed to create session');
+        const sessionData = await newSession.json();
+        sessionId = sessionData.session_id;
+        setActiveSession(sessionId);
+        checkAuthAndLoad();
+      }
+
+      const res = await fetch(`${API_ENPOINT}/v1/chats/${sessionId}/messages`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ message: currentInput })
@@ -115,6 +126,37 @@ export default function Chat() {
     }
   };
 
+  const handleDeleteChat = async (sessionId: string) => {
+    if (!confirm('Delete this chat?')) return;
+    try {
+      const headers = await getHeaders();
+      const res = await fetch(`${API_ENPOINT}/v1/chats/${sessionId}`, { method: 'DELETE', headers });
+      if (res.ok || res.status === 204) {
+        setSessions(prev => {
+          const remaining = prev.filter(s => s.session_id !== sessionId);
+          if (activeSession === sessionId) {
+            setActiveSession(remaining.length > 0 ? remaining[0].session_id : null);
+            if (remaining.length === 0) setMessages([]);
+          }
+          return remaining;
+        });
+      }
+    } catch(e) { console.error(e); }
+  };
+
+  const handleSourceClick = async (docTitle: string) => {
+    try {
+      const headers = await getHeaders();
+      const res = await fetch(`${API_ENPOINT}/v1/docs/url?doc_title=${encodeURIComponent(docTitle)}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        window.open(data.url, '_blank', 'noopener,noreferrer');
+      }
+    } catch (e) {
+      console.error('Failed to open document:', e);
+    }
+  };
+
   const handleLogout = async () => {
     await signOut();
     navigate('/login');
@@ -129,13 +171,20 @@ export default function Chat() {
         </div>
         <div className="session-list">
           {sessions.map(s => (
-            <div 
-              key={s.session_id} 
+            <div
+              key={s.session_id}
               className={`session-item ${activeSession === s.session_id ? 'active' : ''}`}
               onClick={() => setActiveSession(s.session_id)}
             >
-              <MessageSquare size={14} style={{marginRight:'0.5rem', display:'inline-block', verticalAlign:'middle'}} />
-              {s.title}
+              <MessageSquare size={14} style={{flexShrink:0}} />
+              <span className="session-title">{s.title}</span>
+              <button
+                className="delete-session-btn"
+                onClick={(e) => { e.stopPropagation(); handleDeleteChat(s.session_id); }}
+                title="Delete chat"
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
           ))}
         </div>
@@ -172,9 +221,9 @@ export default function Chat() {
               {m.sources && m.sources.length > 0 && (
                 <div className="sources-panel">
                   <h4>Sources:</h4>
-                  {m.sources.map((src, i) => (
-                    <div key={i} className="source-item">
-                       <FileText size={12} /> {src.doc_title} - {src.page_or_section}
+                  {[...new Map(m.sources.map(s => [s.doc_title, s])).values()].map((src, i) => (
+                    <div key={i} className="source-item source-item-link" onClick={() => handleSourceClick(src.doc_title)}>
+                       <FileText size={12} /> {src.doc_title.replace(/\.[^/.]+$/, '')}
                     </div>
                   ))}
                 </div>
@@ -194,7 +243,7 @@ export default function Chat() {
               disabled={loading}
               autoFocus
             />
-            <button type="submit" disabled={!inputStr.trim() || loading || !activeSession}>
+            <button type="submit" disabled={!inputStr.trim() || loading}>
               <Send size={18} />
             </button>
           </form>

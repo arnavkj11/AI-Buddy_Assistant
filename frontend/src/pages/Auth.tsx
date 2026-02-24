@@ -61,7 +61,11 @@ export default function Auth({ mode }: AuthProps) {
       await confirmSignUp({ username: form.email, confirmationCode: form.code });
       navigate('/login');
     } catch(err:any) {
-      setError(err.message);
+      if (err.name === 'NotAuthorizedException' || err.message?.includes('Current status is CONFIRMED')) {
+        navigate('/login');
+      } else {
+        setError(err.message);
+      }
     }
   };
 

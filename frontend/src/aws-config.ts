@@ -10,7 +10,7 @@ export const awsConfig = {
     API: {
       REST: {
         AiBuddyApi: {
-          endpoint: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+          endpoint: (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, ''),
           region: import.meta.env.VITE_REGION || 'us-east-1'
         }
       }

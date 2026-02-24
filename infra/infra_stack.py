@@ -194,6 +194,7 @@ class InfraStack(Stack):
                 "CHAT_SESSIONS_TABLE": self.chat_sessions_table.table_name,
                 "CHAT_MESSAGES_TABLE": self.chat_messages_table.table_name,
                 "DOCUMENTS_TABLE": self.documents_table.table_name,
+                "RAW_BUCKET": self.raw_bucket.bucket_name,
             }
         )
 
@@ -207,6 +208,24 @@ class InfraStack(Stack):
                 allow_methods=apigateway.Cors.ALL_METHODS,
                 allow_headers=["Content-Type", "Authorization"]
             )
+        )
+
+        # Add CORS headers to API Gateway error responses (4xx/5xx).
+        # Without this, Lambda errors return responses without CORS headers,
+        # and browsers mis-report them as CORS failures instead of real errors.
+        cors_headers = {
+            "Access-Control-Allow-Origin": "'*'",
+            "Access-Control-Allow-Headers": "'Content-Type,Authorization'",
+        }
+        self.api_gw.add_gateway_response(
+            "Default4xxCors",
+            type=apigateway.ResponseType.DEFAULT_4_XX,
+            response_headers=cors_headers,
+        )
+        self.api_gw.add_gateway_response(
+            "Default5xxCors",
+            type=apigateway.ResponseType.DEFAULT_5_XX,
+            response_headers=cors_headers,
         )
 
         # ==========================================
@@ -254,7 +273,7 @@ class InfraStack(Stack):
 
         self.state_machine = sfn.StateMachine(
             self, "IngestionPipeline",
-            definition=definition,
+            definition_body=sfn.DefinitionBody.from_chainable(definition),
             timeout=Duration.minutes(15)
         )
 
@@ -297,14 +316,11 @@ def handler(event, context):
             auto_delete_objects=True
         )
 
-        self.cloudfront_oai = cloudfront.OriginAccessIdentity(self, "FrontendOAI")
-        self.frontend_bucket.grant_read(self.cloudfront_oai)
-
         self.frontend_distribution = cloudfront.Distribution(
             self, "FrontendDist",
             default_root_object="index.html",
             default_behavior=cloudfront.BehaviorOptions(
-                origin=origins.S3Origin(self.frontend_bucket, origin_access_identity=self.cloudfront_oai),
+                origin=origins.S3BucketOrigin.with_origin_access_control(self.frontend_bucket),
                 viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS
             ),
             error_responses=[cloudfront.ErrorResponse(

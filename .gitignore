@@ -211,7 +211,6 @@ __marimo__/
 !README.md
 
 # AWS credentials - never commit these
-.aws-access-key.txt
 aws-access-key.txt
 arnav-jain-v2_accessKeys.csv
 

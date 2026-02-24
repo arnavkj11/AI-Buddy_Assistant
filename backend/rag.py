@@ -21,7 +21,7 @@ os_client = OpenSearch(
 
 INDEX_NAME = "onboarding_chunks"
 EMBEDDING_MODEL = "amazon.titan-embed-text-v2:0"
-CHAT_MODEL = "anthropic.claude-3-haiku-20240307-v1:0"
+CHAT_MODEL = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
 
 def get_embedding(text: str) -> list[float]:
     response = bedrock.invoke_model(
@@ -33,7 +33,7 @@ def get_embedding(text: str) -> list[float]:
     result = json.loads(response['body'].read().decode())
     return result.get('embedding')
 
-def retrieve_chunks(query: str, embedding: list[float], top_k: int = 8):
+def retrieve_chunks(query: str, embedding: list[float], top_k: int = 10):
     if not os_client.indices.exists(index=INDEX_NAME):
         return []
 
@@ -85,14 +85,21 @@ def generate_answer(query: str, chunks: list[dict], chat_history: list[dict]):
 
     context_str = "\n\n".join([f"[{c['doc_title']} - {c['page_or_section']}] {c['chunk_text']}" for c in chunks])
     
-    system_prompt = f"""You are the AI Buddy Assistant for new employee onboarding. 
-Answer the user's questions based ONLY on the provided document excerpts.
-If the excerpts don't contain enough information to answer the question, firmly reply "I don't know the answer based on the provided documents. You may want to check with HR or your manager." Do not hallucinate or make up answers.
-Always cite your sources clearly using the document title if you produce an answer based on them.
+    system_prompt = f"""You are AI Buddy, a knowledgeable and friendly onboarding assistant for new employees.
+Your role is to help new hires quickly get up to speed on company policies, processes, tools, and procedures.
 
-<context>
-{context_str}
-</context>"""
+## Instructions
+- Answer questions based ONLY on the provided document excerpts below. Do not use outside knowledge.
+- Be clear, structured, and practical. Use bullet points or numbered steps when explaining processes.
+- If the question has multiple parts, address each part separately.
+- Always cite the source document name at the end of your answer.
+- If the provided excerpts do not contain enough information to answer fully, say exactly:
+  "I don't have enough information in the available documents to fully answer this. I'd recommend checking with HR or your manager for more details."
+- Never guess, assume, or make up policies, names, or procedures.
+- Keep a warm, professional, and encouraging tone — the user is new and may feel overwhelmed.
+
+## Context Documents
+{context_str}"""
 
     # Format history for Claude
     messages = []
@@ -105,7 +112,7 @@ Always cite your sources clearly using the document title if you produce an answ
 
     body = {
         "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 1024,
+        "max_tokens": 2048,
         "system": system_prompt,
         "messages": messages,
         "temperature": 0.1
@@ -121,8 +128,22 @@ Always cite your sources clearly using the document title if you produce an answ
         result = json.loads(response['body'].read().decode())
         answer = result.get('content', [{}])[0].get('text', 'Error generating text.')
         
-        sources = [{"doc_title": c["doc_title"], "page_or_section": c["page_or_section"], "chunk_id": c["chunk_id"]} for c in chunks]
+        # Only include sources that Claude actually cited in the answer
+        seen = set()
+        sources = []
+        for c in chunks:
+            if c["doc_title"] not in seen and c["doc_title"] in answer:
+                seen.add(c["doc_title"])
+                sources.append({"doc_title": c["doc_title"], "page_or_section": c["page_or_section"], "chunk_id": c["chunk_id"]})
+        # Fallback: if Claude cited nothing (unlikely), return all unique docs
+        if not sources:
+            for c in chunks:
+                if c["doc_title"] not in seen:
+                    seen.add(c["doc_title"])
+                    sources.append({"doc_title": c["doc_title"], "page_or_section": c["page_or_section"], "chunk_id": c["chunk_id"]})
         return answer, sources
     except Exception as e:
-        print(f"Bedrock error: {e}")
-        return "Sorry, I encountered an error while communicating with the AI model.", []
+        import traceback
+        print(f"Bedrock error [{type(e).__name__}]: {e}")
+        print(traceback.format_exc())
+        return f"Sorry, I encountered an error: {type(e).__name__}: {str(e)}", []

@@ -1,6 +1,6 @@
 import os
 import boto3
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Key, Attr
 import time
 import uuid
 
@@ -68,6 +68,22 @@ def update_session_last_active(user_id: str, session_id: str):
         UpdateExpression="SET last_active_at = :now",
         ExpressionAttributeValues={':now': now}
     )
+
+def delete_chat_session(user_id: str, session_id: str):
+    # Delete the session record
+    sessions_table.delete_item(Key={'user_id': user_id, 'session_id': session_id})
+    # Delete all messages for this session
+    messages = get_chat_messages(session_id)
+    with messages_table.batch_writer() as batch:
+        for msg in messages:
+            batch.delete_item(Key={'session_id': session_id, 'ts': msg['ts']})
+
+def get_document_by_title(doc_title: str):
+    response = docs_table.scan(
+        FilterExpression=Attr('s3_key').contains(doc_title)
+    )
+    items = response.get('Items', [])
+    return items[0] if items else None
 
 def get_documents_status():
     # Scan table to count READY vs PROCESSING vs FAILED
