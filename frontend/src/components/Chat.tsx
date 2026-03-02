@@ -197,7 +197,7 @@ export default function Chat() {
       {/* Main Area */}
       <div className="chat-main">
         <div className="chat-header">
-          <div style={{fontWeight:600}}>Assistant</div>
+          <div style={{fontWeight:600}}>Buddy Assistant</div>
           {docStatus && (
             <div className={`status-badge ${docStatus.processing > 0 ? 'processing' : ''}`}>
               <Book size={12} style={{marginRight:'4px', display:'inline'}}/>
